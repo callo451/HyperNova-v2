@@ -1,0 +1,440 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Multiplayer Test</title>
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      font-family: Arial, sans-serif;
+      background-color: #222;
+      color: #fff;
+    }
+    
+    #container {
+      max-width: 800px;
+      margin: 0 auto;
+      padding: 20px;
+    }
+    
+    h1 {
+      text-align: center;
+      color: #4CAF50;
+    }
+    
+    .panel {
+      background-color: #333;
+      border-radius: 5px;
+      padding: 15px;
+      margin-bottom: 20px;
+    }
+    
+    .button {
+      background-color: #4CAF50;
+      color: white;
+      border: none;
+      padding: 10px 15px;
+      border-radius: 3px;
+      cursor: pointer;
+      margin-right: 10px;
+    }
+    
+    .button:disabled {
+      background-color: #555;
+      cursor: not-allowed;
+    }
+    
+    input[type="text"] {
+      padding: 8px;
+      border-radius: 3px;
+      border: none;
+      margin-right: 10px;
+    }
+    
+    #game-status {
+      font-weight: bold;
+      margin-bottom: 10px;
+    }
+    
+    #players-list {
+      border: 1px solid #555;
+      border-radius: 3px;
+      padding: 10px;
+      max-height: 200px;
+      overflow-y: auto;
+    }
+    
+    .player-item {
+      display: flex;
+      justify-content: space-between;
+      padding: 5px;
+      border-bottom: 1px solid #555;
+    }
+    
+    .player-item:last-child {
+      border-bottom: none;
+    }
+    
+    .log {
+      background-color: #111;
+      border-radius: 3px;
+      padding: 10px;
+      height: 200px;
+      overflow-y: auto;
+      font-family: monospace;
+      margin-top: 20px;
+    }
+    
+    .log-entry {
+      margin-bottom: 5px;
+      border-bottom: 1px solid #333;
+      padding-bottom: 5px;
+    }
+    
+    .log-entry:last-child {
+      border-bottom: none;
+    }
+  </style>
+</head>
+<body>
+  <div id="container">
+    <h1>Multiplayer Test</h1>
+    
+    <div class="panel">
+      <div id="game-status">Not connected</div>
+      
+      <div>
+        <input type="text" id="player-name" placeholder="Your Name" value="Player_Test">
+        <button id="join-button" class="button">Join Game</button>
+        <button id="leave-button" class="button" disabled>Leave Game</button>
+      </div>
+    </div>
+    
+    <div class="panel">
+      <h2>Players</h2>
+      <div id="players-list">
+        <div class="no-players">No players connected</div>
+      </div>
+    </div>
+    
+    <div class="panel">
+      <h2>Simulate Actions</h2>
+      <button id="move-button" class="button" disabled>Send Random Move</button>
+      <button id="attack-button" class="button" disabled>Send Attack</button>
+    </div>
+    
+    <div class="log" id="log">
+      <div class="log-entry">System initialized</div>
+    </div>
+  </div>
+  
+  <!-- Firebase SDK -->
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-database-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js"></script>
+  
+  <script>
+    // Firebase configuration
+    const firebaseConfig = {
+      apiKey: "AIzaSyCP9W9NfwFgKvuLNfyKrOPzux46oochrsw",
+      authDomain: "hypernova-8fd2c.firebaseapp.com",
+      databaseURL: "https://hypernova-8fd2c-default-rtdb.firebaseio.com",
+      projectId: "hypernova-8fd2c",
+      storageBucket: "hypernova-8fd2c.firebasestorage.app",
+      messagingSenderId: "565281740320",
+      appId: "1:565281740320:web:29482ef95d3076c916ce45"
+    };
+    
+    // Initialize Firebase
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.database();
+    const auth = firebase.auth();
+    
+    // API URL
+    const API_URL = 'http://localhost:3002/api';
+    
+    // Game state
+    let currentPlayerId = null;
+    let currentGameId = null;
+    let gameStateListeners = [];
+    
+    // UI elements
+    const playerNameInput = document.getElementById('player-name');
+    const joinButton = document.getElementById('join-button');
+    const leaveButton = document.getElementById('leave-button');
+    const moveButton = document.getElementById('move-button');
+    const attackButton = document.getElementById('attack-button');
+    const gameStatus = document.getElementById('game-status');
+    const playersList = document.getElementById('players-list');
+    const logElement = document.getElementById('log');
+    
+    // Log function
+    function log(message) {
+      const entry = document.createElement('div');
+      entry.className = 'log-entry';
+      entry.textContent = message;
+      logElement.appendChild(entry);
+      logElement.scrollTop = logElement.scrollHeight;
+    }
+    
+    // Initialize player
+    async function initializePlayer() {
+      try {
+        // Sign in anonymously
+        const userCredential = await auth.signInAnonymously();
+        currentPlayerId = userCredential.user.uid;
+        
+        log(`Player initialized with ID: ${currentPlayerId}`);
+        return currentPlayerId;
+      } catch (error) {
+        log(`Error initializing player: ${error.message}`);
+        return null;
+      }
+    }
+    
+    // Join game
+    async function joinGame(playerName) {
+      try {
+        // Try to find an available game first
+        const response = await fetch(`${API_URL}/games/join`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            playerId: currentPlayerId,
+            playerName: playerName
+          })
+        });
+        
+        const data = await response.json();
+        
+        if (response.ok && data.success) {
+          currentGameId = data.gameId;
+          log(`Joined existing game: ${currentGameId}`);
+          
+          // Setup game listeners
+          setupGameListeners(currentGameId);
+          
+          return { success: true, gameId: currentGameId };
+        } else if (data.error === 'Game not found') {
+          // Create a new game
+          const createResponse = await fetch(`${API_URL}/games/create`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+              playerId: currentPlayerId,
+              playerName: playerName
+            })
+          });
+          
+          const createData = await createResponse.json();
+          
+          if (createResponse.ok && createData.success) {
+            currentGameId = createData.gameId;
+            log(`Created new game: ${currentGameId}`);
+            
+            // Setup game listeners
+            setupGameListeners(currentGameId);
+            
+            return { success: true, gameId: currentGameId };
+          } else {
+            log(`Error creating game: ${createData.error || 'Unknown error'}`);
+            return null;
+          }
+        } else {
+          log(`Error joining game: ${data.error || 'Unknown error'}`);
+          return null;
+        }
+      } catch (error) {
+        log(`Error joining game: ${error.message}`);
+        return null;
+      }
+    }
+    
+    // Send move
+    async function sendMove(moveData) {
+      if (!currentPlayerId || !currentGameId) {
+        log('Cannot send move: Not connected to a game');
+        return false;
+      }
+      
+      try {
+        const response = await fetch(`${API_URL}/games/move`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            gameId: currentGameId,
+            playerId: currentPlayerId,
+            moveData: moveData
+          })
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+          log(`Move sent: ${JSON.stringify(moveData)}`);
+          return true;
+        } else {
+          log(`Error sending move: ${data.error || 'Unknown error'}`);
+          return false;
+        }
+      } catch (error) {
+        log(`Error sending move: ${error.message}`);
+        return false;
+      }
+    }
+    
+    // Setup game listeners
+    function setupGameListeners(gameId) {
+      // Clear any existing listeners
+      gameStateListeners.forEach(listener => {
+        if (typeof listener === 'function') {
+          listener();
+        }
+      });
+      gameStateListeners = [];
+      
+      // Listen for game state changes
+      const gameRef = db.ref(`games/${gameId}`);
+      const listener = gameRef.on('value', (snapshot) => {
+        const gameData = snapshot.val();
+        
+        if (gameData) {
+          updateGameState(gameData);
+        }
+      });
+      
+      gameStateListeners.push(() => gameRef.off('value', listener));
+      log(`Game listeners set up for game: ${gameId}`);
+    }
+    
+    // Update game state
+    function updateGameState(gameData) {
+      // Update game status
+      gameStatus.textContent = `Game: ${currentGameId} - Status: ${gameData.status}`;
+      
+      // Update players list
+      if (gameData.players) {
+        updatePlayersList(gameData.players);
+      }
+      
+      // Log last move if available
+      if (gameData.lastMove) {
+        const move = gameData.lastMove;
+        log(`Last move: ${move.playerId} - ${move.type}`);
+      }
+    }
+    
+    // Update players list
+    function updatePlayersList(players) {
+      playersList.innerHTML = '';
+      
+      if (!players || Object.keys(players).length === 0) {
+        playersList.innerHTML = '<div class="no-players">No players connected</div>';
+        return;
+      }
+      
+      Object.values(players).forEach(player => {
+        const playerItem = document.createElement('div');
+        playerItem.className = 'player-item';
+        
+        // Add status indicator (alive, defeated)
+        let statusText = player.isBot ? 'Bot' : 'Human';
+        if (player.status === 'defeated') {
+          statusText += ' (Defeated)';
+        }
+        
+        playerItem.innerHTML = `
+          <span class="player-name">${player.name}</span>
+          <span class="player-status">${statusText}</span>
+        `;
+        
+        playersList.appendChild(playerItem);
+      });
+    }
+    
+    // Event listeners
+    joinButton.addEventListener('click', async () => {
+      joinButton.disabled = true;
+      
+      // Initialize player if not already done
+      if (!currentPlayerId) {
+        await initializePlayer();
+      }
+      
+      // Join game
+      const playerName = playerNameInput.value.trim() || `Player_${Math.floor(Math.random() * 1000)}`;
+      const result = await joinGame(playerName);
+      
+      if (result && result.success) {
+        // Enable other buttons
+        leaveButton.disabled = false;
+        moveButton.disabled = false;
+        attackButton.disabled = false;
+        playerNameInput.disabled = true;
+      } else {
+        joinButton.disabled = false;
+      }
+    });
+    
+    leaveButton.addEventListener('click', () => {
+      // Reset state
+      currentGameId = null;
+      gameStateListeners.forEach(listener => {
+        if (typeof listener === 'function') {
+          listener();
+        }
+      });
+      gameStateListeners = [];
+      
+      // Update UI
+      gameStatus.textContent = 'Not connected';
+      playersList.innerHTML = '<div class="no-players">No players connected</div>';
+      
+      // Enable/disable buttons
+      joinButton.disabled = false;
+      leaveButton.disabled = true;
+      moveButton.disabled = true;
+      attackButton.disabled = true;
+      playerNameInput.disabled = false;
+      
+      log('Left game');
+    });
+    
+    moveButton.addEventListener('click', () => {
+      // Send random position
+      sendMove({
+        type: 'position',
+        position: {
+          x: Math.floor(Math.random() * 100 - 50),
+          y: 5,
+          z: Math.floor(Math.random() * 100 - 50),
+          rotation: Math.random() * Math.PI * 2
+        }
+      });
+    });
+    
+    attackButton.addEventListener('click', () => {
+      // Send attack action
+      sendMove({
+        type: 'action',
+        actionType: 'attack',
+        actionData: {
+          targetId: 'random',
+          damage: 10
+        }
+      });
+    });
+    
+    // Initialize
+    log('System ready');
+  </script>
+</body>
+</html> 

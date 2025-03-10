@@ -1,0 +1,28 @@
+{
+  "name": "multiplayer-game-server",
+  "version": "1.0.0",
+  "description": "Multiplayer game server with Firebase integration",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev:server": "nodemon server.js",
+    "dev:client": "vite",
+    "dev": "concurrently \"npm run dev:server\" \"npm run dev:client\"",
+    "build": "vite build"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^4.21.2",
+    "firebase": "^11.4.0",
+    "firebase-admin": "^11.11.1",
+    "three": "^0.174.0"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2",
+    "nodemon": "^3.1.9",
+    "vite": "^5.1.4"
+  },
+  "engines": {
+    "node": ">=16.0.0"
+  }
+}
